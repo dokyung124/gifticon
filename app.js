@@ -16,7 +16,9 @@ function gcNormalizeBarcode(v) {
 
 function gcIsUsedText(text) {
   const t = String(text || "").replace(/\s+/g, "");
-  return /사용완료|사용이완료|사용된|사용처리완료|이미사용/.test(t);
+  // "사용 완료하기" 같은 버튼 글자는 사용한 게 아니라서 빼요
+  const cleaned = t.replace(/사용완료(하기|처리하기|버튼|로표시)/g, "");
+  return /사용완료|사용이완료|사용처리완료|이미사용(된|한|되)/.test(cleaned);
 }
 
 function gcValidDate(y, m, d) {
