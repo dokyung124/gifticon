@@ -5,6 +5,7 @@ const SUPABASE_KEY = "sb_publishable_9YGuoMij_MUNkEN4mO4YEw_Y0Snp6jF";
 const VAPID_PUBLIC_KEY = "BNmmHNe81o8HEYpfXGHgFqebA7DeGYEZA3fRKdUGIm57_dcn4mYyvmfZvu0KoWQMfFcOH9nqBL1444EL5hhx6lU";
 const BUCKET = "gifticon-images";
 const INGEST_URL = SUPABASE_URL + "/functions/v1/gifticon-ingest";
+const SHORTCUT_NAME = "기프티콘 불러오기"; // 단축어 이름과 똑같아야 해요
 const ZXING_URL = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
 const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
 
@@ -271,10 +272,13 @@ function errMsg(e) {
 
 /* ================= 데이터 ================= */
 async function loadAll() {
-  const items = await sb.from("gifticon_items").select("*").order("expires_on", { ascending: true });
+  const [items, inbox] = await Promise.all([
+    sb.from("gifticon_items").select("*").order("expires_on", { ascending: true }),
+    sb.from("gifticon_inbox").select("*").order("created_at", { ascending: true }),
+  ]);
   if (items.error) throw items.error;
   state.items = items.data || [];
-  state.inbox = [];
+  state.inbox = inbox.error ? [] : inbox.data || [];
   if (!state.settings) await ensureSettings();
 }
 
@@ -444,11 +448,12 @@ function viewHome() {
     ${tab("expired", "기한 만료")}
   </div>
   ${body}
-  <div style="height:96px"></div>
+  <div style="height:150px"></div>
   <div class="bottom-bar" style="position:fixed;left:0;right:0;max-width:480px;margin:0 auto">
-    <label class="primary fab-label">
-      ${ICON.image} 캡쳐 불러오기
-      <input type="file" accept="image/*" multiple data-change="pickFiles" aria-label="캡쳐 불러오기">
+    <button type="button" class="primary" data-action="runShortcut">${ICON.image} 지금 불러오기</button>
+    <label class="text-btn fab-label" style="align-self:center;display:flex;align-items:center">
+      사진에서 직접 고르기
+      <input type="file" accept="image/*" multiple data-change="pickFiles" aria-label="사진에서 직접 고르기">
     </label>
   </div>`;
 }
@@ -661,6 +666,35 @@ function viewSettings() {
       <span>예) 12월 10일까지인 기프티콘 → ${example}</span>
     </div>
     <div class="set-card">${pushBlock}</div>
+  </section>
+
+  <section class="section">
+    <h2>캡쳐 자동 등록 (아이폰 단축어)</h2>
+    <div class="set-card">
+      <p class="muted" style="margin:0;font-size:14px;line-height:1.6">단축어를 한 번 만들어 두면, 최근 스크린샷 중 기프티콘만 골라서 자동으로 등록돼요. 아래 두 가지를 단축어에 붙여넣어요.</p>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:13px;font-weight:700;color:var(--sub)">보낼 주소</span>
+        <div class="code-box"><span>${INGEST_URL}</span><button type="button" data-action="copy" data-value="${INGEST_URL}">복사</button></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:13px;font-weight:700;color:var(--sub)">내 연결 코드 <span class="muted" style="font-weight:400">(다른 사람에게 알려주지 마세요)</span></span>
+        <div class="code-box"><span>${esc(s.upload_token || "")}</span><button type="button" data-action="copy" data-value="${esc(s.upload_token || "")}">복사</button></div>
+      </div>
+      <details class="howto">
+        <summary>단축어 만드는 법</summary>
+        <ol>
+          <li><b>단축어</b> 앱 → <b>+</b> → 이름을 <b>${SHORTCUT_NAME}</b>로 정해요. (띄어쓰기까지 똑같이)</li>
+          <li><b>사진 찾기</b> 추가 → 필터: <b>스크린샷</b>이 <b>참</b>, <b>생성일</b>이 <b>최근 2일</b>.</li>
+          <li><b>각 항목을 반복</b> 추가 → 그 안에 <b>이미지에서 텍스트 추출</b>(입력: 반복 항목).</li>
+          <li><b>만약</b> 추가 → 조건: 텍스트가 <b>유효기간</b>을 포함. 조건 추가로 <b>유효기한</b>, <b>사용기한</b>, <b>교환처</b>도 넣고 <b>다음 중 하나라도</b>로 바꿔요.</li>
+          <li>만약 안에: <b>이미지 크기 조절</b>(반복 항목, 너비 1080) → <b>이미지 변환</b>(JPEG).</li>
+          <li>이어서 <b>URL 콘텐츠 가져오기</b>: URL에 <b>보낼 주소</b>, 방법 <b>POST</b>, 헤더 <b>x-upload-token</b> = <b>내 연결 코드</b>, 본문 <b>양식</b> → 파일 <b>file</b> = 변환된 이미지, 텍스트 <b>text</b> = 추출된 텍스트.</li>
+          <li>단축어를 한 번 직접 실행하고, 사진·인터넷 접근을 물으면 <b>항상 허용</b>을 눌러요.</li>
+          <li><b>자동화</b> 탭 → <b>새로운 자동화</b> → <b>특정 시간</b>(예: 매일 밤 11시) → <b>즉시 실행</b> → 동작: <b>단축어 실행</b> → <b>${SHORTCUT_NAME}</b>.</li>
+        </ol>
+      </details>
+      <button type="button" class="text-btn" style="align-self:flex-start;padding:0" data-action="resetToken">연결 코드 새로 만들기</button>
+    </div>
   </section>
 
   <section class="section">
@@ -1120,6 +1154,12 @@ const actions = {
   },
   startReview() {
     startReview();
+  },
+  runShortcut() {
+    toast("단축어가 끝나면 이 앱으로 돌아와 주세요", 4000);
+    setTimeout(() => {
+      location.href = "shortcuts://run-shortcut?name=" + encodeURIComponent(SHORTCUT_NAME);
+    }, 300);
   },
   closeReview() {
     const back = state.review && state.review.edit ? "detail" : "home";
