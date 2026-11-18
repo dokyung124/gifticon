@@ -1095,7 +1095,7 @@ async function testPush() {
   const reg = await swReg();
   if (!reg) return;
   await navigator.serviceWorker.ready;
-  reg.showNotification("기프티콘함", { body: "알림이 잘 와요! 만료 전에 이렇게 알려드릴게요.", icon: "icons/icon-192.png" });
+  reg.showNotification("기프티콘함", { body: "알림이 잘 와요! 만료 전에 이렇게 알려드릴게요.", icon: "icon-192.png" });
 }
 
 /* ================= 이벤트 ================= */
