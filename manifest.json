@@ -1,0 +1,16 @@
+{
+  "name": "기프티콘함",
+  "short_name": "기프티콘함",
+  "description": "기프티콘 캡쳐를 정리하고 만료 전에 알려주는 앱",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFF8EC",
+  "theme_color": "#FFF8EC",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
