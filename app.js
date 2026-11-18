@@ -14,11 +14,22 @@ function gcNormalizeBarcode(v) {
   return String(v || "").replace(/[\s-]/g, "");
 }
 
+// '사용완료' 도장처럼 그 글자만 따로 있는 줄이 있을 때만 사용한 것으로 봐요
+// (안내 문장이나 "사용 완료하기" 버튼 글자는 무시)
 function gcIsUsedText(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[\s'"‘’“”·.!]/g, ""))
+    .some((l) =>
+      /^(사용완료(됨|된쿠폰(입니다)?|되었습니다|된상품(입니다)?)?|사용이완료(됨|되었습니다|된쿠폰(입니다)?)?|사용처리완료|이미사용(된|한|하신)(쿠폰|상품|기프티콘)?(입니다)?)$/.test(l)
+    );
+}
+
+// 기프티콘함 앱 자체 화면을 캡쳐한 경우는 건너뛰어요
+function gcIsOwnAppScreen(text) {
   const t = String(text || "").replace(/\s+/g, "");
-  // "사용 완료하기" 같은 버튼 글자는 사용한 게 아니라서 빼요
-  const cleaned = t.replace(/사용완료(하기|처리하기|버튼|로표시)/g, "");
-  return /사용완료|사용이완료|사용처리완료|이미사용(된|한|되)/.test(cleaned);
+  return /남은알림은울리지않아요|이기프티콘삭제|사진에서직접고르기|지금불러오기|단축어로.{0,6}새로등록/.test(t) ||
+    (/원본캡쳐/.test(t) && /정보수정/.test(t));
 }
 
 function gcValidDate(y, m, d) {
@@ -188,6 +199,7 @@ function gcParseText(text) {
     expiry: gcParseExpiry(text),
     barcodes: gcBarcodeCandidates(text),
     used: gcIsUsedText(text),
+    ownApp: gcIsOwnAppScreen(text),
   };
 }
 // ---- 여기까지 공통 코드 ----
@@ -949,7 +961,7 @@ async function startReview() {
         await sb.from("gifticon_inbox").delete().eq("id", row.id);
         await removeImage(row.image_path);
       };
-      if (!a.barcode) {
+      if (!a.barcode || a.parsed.ownApp) {
         r.skipped++;
         await drop();
         continue;
@@ -1000,7 +1012,7 @@ async function handleFiles(files) {
     for (let i = 0; i < list.length; i++) {
       busy(`캡쳐 읽는 중 ${i + 1}/${list.length}${i === 0 ? "\n처음엔 글자 인식 준비로 조금 걸려요" : ""}`);
       const a = await analyze(list[i], "", true);
-      if (!a.barcode) {
+      if (!a.barcode || a.parsed.ownApp) {
         r.skipped++;
         continue;
       }
