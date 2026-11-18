@@ -77,24 +77,68 @@ function gcBarcodeCandidates(text) {
   return [...new Set(scored.map((s) => s.digits))];
 }
 
-function gcParseBrand(text) {
-  const t = String(text || "");
-  const m = t.match(/교\s*환\s*처\s*[:：]?\s*([^\n]+)/);
-  if (m) {
-    const v = m[1].trim();
-    if (v) return v.slice(0, 40);
-  }
-  const m2 = t.match(/사\s*용\s*처\s*[:：]?\s*([^\n]+)/);
-  if (m2 && m2[1].trim()) return m2[1].trim().slice(0, 40);
-  return "";
-}
+const GC_BRANDS = [
+  "GS25", "CU", "세븐일레븐", "이마트24", "미니스톱", "스타벅스", "투썸플레이스", "메가커피", "메가MGC커피", "컴포즈커피",
+  "빽다방", "이디야", "할리스", "폴바셋", "커피빈", "엔제리너스", "탐앤탐스", "파스쿠찌", "공차", "설빙",
+  "배스킨라빈스", "던킨", "파리바게뜨", "뚜레쥬르", "크리스피크림", "BHC", "BBQ", "교촌치킨", "굽네치킨", "처갓집",
+  "푸라닭", "노랑통닭", "맘스터치", "버거킹", "맥도날드", "롯데리아", "KFC", "서브웨이", "도미노피자", "피자헛",
+  "파파존스", "미스터피자", "아웃백", "빕스", "올리브영", "다이소", "이마트", "홈플러스", "롯데마트", "노브랜드",
+  "배달의민족", "요기요", "쿠팡이츠", "CGV", "메가박스", "롯데시네마", "교보문고", "아트박스", "본죽", "명랑핫도그",
+];
 
-const GC_SKIP_LINE = /유\s*효\s*기\s*간|교\s*환\s*처|사\s*용\s*처|주\s*문\s*번\s*호|선\s*물\s*하\s*기|쿠\s*폰\s*번\s*호|바\s*코\s*드|사\s*용\s*완\s*료|사\s*용\s*가\s*능|상\s*세\s*보\s*기|저\s*장|공\s*유|선\s*물\s*함|보\s*낸\s*사\s*람|받\s*은\s*사\s*람|메\s*시\s*지|카\s*카\s*오\s*톡|선물이 도착|확인|닫기|^\s*from\b|^\s*to\b/i;
+const GC_LABEL = /^(사\s*용\s*처|교\s*환\s*처|사\s*용\s*기\s*간|사\s*용\s*조\s*건|유\s*효\s*기\s*간|유\s*효\s*기\s*한|사\s*용\s*기\s*한|이\s*용\s*기\s*간|쿠\s*폰\s*명|상\s*품\s*명|주\s*문\s*번\s*호|쿠\s*폰\s*번\s*호|유\s*의\s*사\s*항|만\s*료\s*일)\s*[:：]?$/;
+const GC_JUNK_VALUE = /유의사항|참고|상세|매장|온라인|전국|사용가능/;
 
-function gcCandidateLines(text) {
+function gcLines(text) {
   return String(text || "")
     .split(/\r?\n/)
     .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+// "라벨 값"이 한 줄에 있거나, 라벨 다음 줄에 값이 있을 때 값 꺼내기
+function gcLabelValue(lines, labelRe) {
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(new RegExp("^(?:" + labelRe + ")[ \\t]*[:：]?[ \\t]*(.*)$"));
+    if (!m) continue;
+    if (m[1] && !GC_LABEL.test(m[1])) return m[1].trim();
+    const next = lines[i + 1];
+    if (next && !GC_LABEL.test(next) && !/^\d[\d.\-~ ]+$/.test(next)) return next;
+  }
+  return "";
+}
+
+function gcKnownBrand(text) {
+  const t = String(text || "");
+  const compact = t.replace(/\s+/g, "");
+  let best = null;
+  for (const b of GC_BRANDS) {
+    const re = /^[A-Za-z0-9]+$/.test(b) ? new RegExp("(^|[^A-Za-z0-9])" + b + "($|[^A-Za-z0-9])", "i") : null;
+    const idx = re ? t.search(re) : compact.indexOf(b);
+    if (idx < 0) continue;
+    const pos = re ? idx : compact.indexOf(b) / Math.max(compact.length, 1) * t.length;
+    if (!best || pos < best.pos) best = { name: b, pos };
+  }
+  return best ? best.name : "";
+}
+
+function gcParseBrand(text) {
+  const lines = gcLines(text);
+  const v = gcLabelValue(lines, "교\\s*환\\s*처|사\\s*용\\s*처");
+  if (v && !GC_JUNK_VALUE.test(v) && v.length <= 30) return v;
+  const known = gcKnownBrand(text);
+  if (known) return known;
+  for (const l of lines) {
+    const m = l.match(/^\[([^\]]{1,20})\]/);
+    if (m) return m[1].trim();
+  }
+  return "";
+}
+
+const GC_SKIP_LINE = /유\s*효\s*기\s*간|유\s*효\s*기\s*한|교\s*환\s*처|사\s*용\s*처|사\s*용\s*기\s*간|사\s*용\s*기\s*한|이\s*용\s*기\s*간|사\s*용\s*조\s*건|주\s*문\s*번\s*호|선\s*물\s*하\s*기|쿠\s*폰\s*번\s*호|쿠\s*폰\s*상\s*세|쿠\s*폰\s*명|상\s*품\s*명|바\s*코\s*드|사\s*용\s*완\s*료|사\s*용\s*가\s*능|사\s*용\s*하\s*기|사\s*용\s*할\s*까|사\s*용\s*방\s*법|유\s*의\s*사\s*항|상\s*세\s*보\s*기|남\s*았\s*어\s*요|만\s*료\s*일|시\s*크\s*릿|^매\s*장$|^공\s*유$|저\s*장|선\s*물\s*함|보\s*낸\s*사\s*람|받\s*은\s*사\s*람|메\s*시\s*지|카\s*카\s*오\s*톡|선물이 도착|확인|닫기|^D-\d+|^\s*from\b|^\s*to\b/i;
+
+function gcCandidateLines(text) {
+  return gcLines(text)
     .map((l) => (/^([가-힣] )+[가-힣]$/.test(l) ? l.replace(/ /g, "") : l))
     .filter((l) => {
       if (l.replace(/\s/g, "").length < 2) return false;
@@ -106,19 +150,38 @@ function gcCandidateLines(text) {
     });
 }
 
-function gcParseText(text) {
-  let brand = gcParseBrand(text);
-  const lines = gcCandidateLines(text);
-  let name = "";
-  if (brand) {
-    const b = brand.replace(/\s/g, "");
-    name = lines.find((l) => l.replace(/\s/g, "") !== b) || "";
-  } else if (lines.length >= 2) {
-    brand = lines[0];
-    name = lines[1];
-  } else {
-    name = lines[0] || "";
+function gcStripBrand(name, brand) {
+  let n = name.replace(/^\[[^\]]{1,20}\]\s*/, "");
+  if (brand && n.replace(/\s/g, "").startsWith(brand.replace(/\s/g, "")) && n.length > brand.length + 1) {
+    n = n.slice(brand.length).replace(/^[\s)\]:·-]+/, "");
   }
+  return n.trim();
+}
+
+function gcParseText(text) {
+  const lines = gcLines(text);
+  let brand = gcParseBrand(text);
+  const cands = gcCandidateLines(text);
+  // 아는 브랜드가 없으면 맨 위 두 줄을 교환처 / 상품명으로 봐요
+  if (!brand && cands.length >= 2 && !gcLabelValue(lines, "쿠\\s*폰\\s*명|상\\s*품\\s*명")) brand = cands[0];
+  const sameAsBrand = (l) => brand && l.replace(/\s/g, "").toLowerCase() === brand.replace(/\s/g, "").toLowerCase();
+
+  // 1) "쿠폰명 / 상품명" 라벨이 있으면 그 값
+  let name = gcLabelValue(lines, "쿠\\s*폰\\s*명|상\\s*품\\s*명");
+  // 2) 교환처 이름이 들어간 줄 (예: [GS25] 롯데) 아몬드빼빼로)
+  if (!name && brand) {
+    const withBrand = cands.find((l) => !sameAsBrand(l) && l.replace(/\s/g, "").toLowerCase().includes(brand.replace(/\s/g, "").toLowerCase()));
+    if (withBrand) name = withBrand;
+  }
+  // 3) 교환처만 있는 줄 바로 다음 줄 (예: GS25 / 농심)육개장사발면)
+  if (!name && brand) {
+    const i = cands.findIndex(sameAsBrand);
+    if (i >= 0 && cands[i + 1] && !sameAsBrand(cands[i + 1])) name = cands[i + 1];
+  }
+  // 4) 그래도 없으면 첫 번째 후보 줄
+  if (!name) name = cands.find((l) => !sameAsBrand(l)) || "";
+  name = gcStripBrand(name, brand);
+
   return {
     brand: brand.slice(0, 40),
     name: name.slice(0, 60),
